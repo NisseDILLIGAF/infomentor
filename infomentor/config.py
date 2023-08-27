@@ -4,16 +4,12 @@ import os
 _config = None
 
 _defaults = {
-    "pushover": {"apikey": ""},
     "general": {
-        "secretkey": "",
         "baseurl": "",
-        "adminmail": "",
-        "im1url": "https://im1.infomentor.de/Germany/Germany/Production",
-        "mimrul": "https://mein.infomentor.de",
+        "im1url": "https://infomentor.se/swedish/production",
+        "mimrul": "https://hub.infomentor.se",
     },
-    "smtp": {"server": "", "username": "", "password": ""},
-    "healthchecks": {"url": ""},
+    "user": {"username": "", "password": ""},
 }
 
 

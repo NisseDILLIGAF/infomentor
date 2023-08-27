@@ -12,8 +12,7 @@ import urllib.parse
 import uuid
 import glob
 import hashlib
-from infomentor import model, config
-
+from infomentor import config
 
 class InfomentorFile(object):
     """Represent a file which is downloaded"""
@@ -59,9 +58,13 @@ class Infomentor(object):
         self._last_result = None
         self.user = user
         self.cfg = config.load()
-        self.BASE_IM1 = self.cfg["general"]["im1url"]
-        self.BASE_MIM = self.cfg["general"]["mimurl"]
+        #self.user = self.cfg["general"]["im1url"]
+        self.BASE_IM1 = 'https://infomentor.se/swedish/production'
+        self.BASE_MIM = 'https://hub.infomentor.se'
+        #self.BASE_IM1 = self.cfg["general"]["im1url"]
+        #self.BASE_MIM = self.cfg["general"]["mimurl"]
         self._create_session()
+        self.pupils = None
 
     def _create_session(self):
         """Create the session for handling all further requests"""
@@ -94,7 +97,51 @@ class Infomentor(object):
         url = self._mim_url(auth_check_url)
         r = self._do_post(url)
         self.logger.info("%s loggedin: %s", username, r.text)
+        if r.text.lower() == "true":
+            self._decode_pupils(self._do_get(self._mim_url()).content)
         return r.text.lower() == "true"
+
+    def change_pupil(self, pupilid):
+        for pupil in self.pupils:
+            if pupil.get('id') == pupilid:
+                self._do_get(pupil.get('switchPupilUrl'))
+                self.logger.info('Switched to pupil: {}/{}'.format(pupilid, pupil.get('name')))
+                return
+
+        self.logger.warn('Could not find pupilId: {}'.format(pupilid))
+
+    def get_pupils(self):
+        return self.pupils
+
+
+    def _decode_pupils(self, data):
+        self.logger.info('_decode_puplis')
+
+        text = data.decode('utf-8').replace('\r\n', '\n')
+        p1 = text.find('IMHome.home.homeData = ')+len('IMHome.home.homeData = ')
+        p2 = 0
+        self.logger.debug('p1: {}'.format(p1))
+        if p1 < 50:
+            self.logger.warn('Could not find pupils')
+            return False
+        try:
+            json.loads(text[p1:])
+        except json.JSONDecodeError as e:
+            p2 = e.pos
+            self.logger.debug('p2: {}'.format(p2))
+        try:
+            j = json.loads(text[p1:p1+p2])
+        except json.JSONDecodeError as e:
+            self.logger.warn('Could not find pupils, JSON decode error')
+            return False
+        else:
+            try:
+                self.pupils = j.get('account').get('pupils')
+            except:
+                return False
+            self.logger.info('Found pupils: {}'.format(self.pupils))
+            return True
+
 
     def _do_login(self, user, password):
         self._do_request_initial_token()
@@ -281,25 +328,25 @@ class Infomentor(object):
         storenewsdata["news_id"] = article_json["id"]
         storenewsdata["raw"] = json.dumps(article_json)
         storenewsdata["attachments"] = []
-        for attachment in article_json["attachments"]:
-            self.logger.info("found attachment %s", attachment["title"])
-            att_id = re.findall("Download/([0-9]+)?", attachment["url"])[0]
-            f = self.download_file(attachment["url"], directory="files")
-            try:
-                storenewsdata["attachments"].append(
-                    model.Attachment(
-                        attachment_id=att_id,
-                        url=attachment["url"],
-                        localpath=f,
-                        title=attachment["title"],
-                    )
-                )
-            except Exception as e:
-                self.logger.exception("failed to store attachment")
-        news = model.News(**storenewsdata)
+        # for attachment in article_json["attachments"]:
+        #     self.logger.info("found attachment %s", attachment["title"])
+        #     att_id = re.findall("Download/([0-9]+)?", attachment["url"])[0]
+        #     f = self.download_file(attachment["url"], directory="files")
+        #     try:
+        #         storenewsdata["attachments"].append(
+        #             model.Attachment(
+        #                 attachment_id=att_id,
+        #                 url=attachment["url"],
+        #                 localpath=f,
+        #                 title=attachment["title"],
+        #             )
+        #         )
+        #     except Exception as e:
+        #         self.logger.exception("failed to store attachment")
+        # news = model.News(**storenewsdata)
         with contextlib.suppress(Exception):
-            news.imagefile = self.get_newsimage(article_json["id"])
-        return news
+            storenewsdata['imagefile'] = self.get_newsimage(article_json["id"])
+        return storenewsdata
 
     def get_article(self, id):
         """Receive the article details"""
@@ -361,6 +408,7 @@ class Infomentor(object):
                 if hw["id"] == 0:
                     continue
                 else:
+                    hw["date"] = dategroup["date"]
                     self._homework[hw["id"]] = hw
                     homeworklist.append(hw["id"])
         return homeworklist
@@ -370,25 +418,32 @@ class Infomentor(object):
         storehw = {k: hw[k] for k in ("subject", "courseElement")}
         storehw["homework_id"] = hw["id"]
         storehw["text"] = hw["homeworkText"]
+        storehw["date"] = hw["date"]
         storehw["attachments"] = []
         for attachment in hw["attachments"]:
             self.logger.info("found attachment %s", attachment["title"])
             att_id = re.findall("Download/([0-9]+)?", attachment["url"])[0]
             f = self.download_file(attachment["url"], directory="files")
-            try:
-                storehw["attachments"].append(
-                    model.Attachment(
-                        attachment_id=att_id,
-                        url=attachment["url"],
-                        localpath=f,
-                        title=attachment["title"],
-                    )
-                )
-            except Exception as e:
-                self.logger.exception("failed to store attachment")
-        hw = model.Homework(**storehw)
-        return hw
+            # try:
+            #     storehw["attachments"].append(
+            #         model.Attachment(
+            #             attachment_id=att_id,
+            #             url=attachment["url"],
+            #             localpath=f,
+            #             title=attachment["title"],
+            #         )
+            #     )
+            # except Exception as e:
+                # self.logger.exception("failed to store attachment")
+        # hw = model.Homework(**storehw)
+        return storehw
 
+    def get_task(self,offset=0):
+        self.logger.info("fetching task")
+        data = self._get_week_dates(offset)
+        self._do_post(self._mim_url("task/task/appData"), data=data)
+        return self.get_json_return()
+    
     def get_timetable(self, offset=0):
         self.logger.info("fetching timetable")
         data = self._get_week_dates(offset)
